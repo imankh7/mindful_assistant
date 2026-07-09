@@ -16,6 +16,66 @@ gold_set = [
         "expected_phrase": "psychotherapy",
     },
     {
+        "question": "I feel on edge all the time and can't relax, is something wrong with me?",
+        "expected_phrase": "Feel restless or have trouble relaxing",
+    },
+    {
+        "question": "my worries are taking over my whole life and I can't shut them off",
+        "expected_phrase": "persistent feeling of anxiety or dread that interferes",
+    },
+    {
+        "question": "I keep needing to pee and my heart races when I'm nervous, is that anxiety?",
+        "expected_phrase": "Make frequent trips to the bathroom",
+    },
+    {
+        "question": "How long do I need to feel worried before it counts as GAD?",
+        "expected_phrase": "at least 6 months",
+    },
+    {
+        "question": "how many symptoms do you need to be diagnosed with GAD?",
+        "expected_phrase": "at least three of these symptoms",
+    },
+    {
+        "question": "how long does buspirone take to start working?",
+        "expected_phrase": "taken for 3–4 weeks",
+    },
+    {
+        "question": "when does anxiety usually start in life?",
+        "expected_phrase": "starts in early adulthood",
+    },
+    {
+        "question": "is anxiety more common in women or men?",
+        "expected_phrase": "Women are more likely than men",
+    },
+    {
+        "question": "what's the best type of therapy for anxiety?",
+        "expected_phrase": "gold standard",
+    },
+    {
+        "question": "is there a therapy that uses mindfulness and acceptance instead of challenging thoughts?",
+        "expected_phrase": "acceptance and commitment therapy",
+    },
+    {
+        "question": "are benzodiazepines addictive?",
+        "expected_phrase": "become dependent on them",
+    },
+    {
+        "question": "can you have anxiety and depression at the same time?",
+        "expected_phrase": "other mental and physical health disorders",
+    },
+    {
+        "question": "what lifestyle changes help with anxiety?",
+        "expected_phrase": "reducing caffeine intake and getting enough sleep",
+    },
+    {
+        "question": "does exercise help with anxiety?",
+        "expected_phrase": "exercise, mindfulness, and meditation",
+    },
+    {
+        "question": "how do I bring up my worries with someone I trust?",
+        "expected_phrase": "have an honest conversation",
+    },
+    {
         "question": "What medications are used for anxiety?",
         "expected_phrase": "benzodiazepines",
     },
