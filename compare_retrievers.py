@@ -2,6 +2,11 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
+from langchain_classic.retrievers.contextual_compression import (
+    ContextualCompressionRetriever,
+)
 from chunk import chunk_document
 from gold_set import gold_set
 from judge import judge_relevance
@@ -23,7 +28,7 @@ def evaluate_retriever(retriever, label):
             if judge_relevance(question, doc.page_content):
                 relevant_count += 1
 
-        question_precision = relevant_count / K
+        question_precision = relevant_count / len(results) if results else 0
         precisions.append(question_precision)
 
     avg = sum(precisions) / len(precisions)
@@ -43,13 +48,34 @@ if __name__ == "__main__":
     sparse = BM25Retriever.from_documents(documents)
     sparse.k = K
 
+    sparse_broad = BM25Retriever.from_documents(documents)
+    sparse_broad.k = 15
+
     # 3: Hybrid retriever
     hybrid = EnsembleRetriever(
         retrievers=[dense, sparse],
         weights=[0.5, 0.5],
     )
 
+    # 4. HYBRID + RERANK
+    hybrid_broad = EnsembleRetriever(
+        retrievers=[
+            store.as_retriever(search_kwargs={"k": 15}),
+            sparse_broad,
+        ],
+        weights=[0.5, 0.5],
+    )
+
+    cross_encoder = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-base")
+    reranker = CrossEncoderReranker(model=cross_encoder, top_n=K)
+
+    reranked = ContextualCompressionRetriever(
+        base_compressor=reranker,
+        base_retriever=hybrid_broad,
+    )
+
     # Run all three through the same evaluation
     evaluate_retriever(dense, "DENSE (semantic)")
     evaluate_retriever(sparse, "SPARSE (BM25 keyword)")
     evaluate_retriever(hybrid, "HYBRID (dense + sparse, RRF)")
+    evaluate_retriever(reranked, "HYBRID + RERANK (cross-encoder)")
