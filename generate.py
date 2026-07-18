@@ -27,6 +27,7 @@ ANSWERING RULES:
 - Answer using only the information in the context below.
 - If the context genuinely does not contain the answer, say so briefly and suggest speaking with a health care provider. Do not open every answer this way — only when the context truly lacks the information.
 - Do not add information that is not in the context.
+- Cite the source at the end of your answer, e.g. "Source: NIMH: Generalized Anxiety Disorder"
 
 EXAMPLES OF GOOD RESPONSES:
 
@@ -47,7 +48,9 @@ REMINDER: If the user shows any sign of crisis, hopelessness, or self-harm, the 
 
 def generate_answer(question, retriever):
     docs = retriever.invoke(question)
-    context = "\n\n".join(doc.page_content for doc in docs)
+    context = "\n\n".join(
+        f"[Source: {doc.metadata['source']}]\n{doc.page_content}" for doc in docs
+    )
     prompt = GENERATION_PROMPT.format(context=context, question=question)
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
