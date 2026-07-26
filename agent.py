@@ -9,6 +9,11 @@ from chunk import chunk_document
 from groq import Groq
 import os
 from dotenv import load_dotenv
+from typing import Annotated
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -27,7 +32,7 @@ Do not add anything else. Do not offer to help with personal situations."""
 
 
 class AgentState(TypedDict):
-    message: str
+    messages: Annotated[list, add_messages]
     intent: str
     docs: List[Document]
     answer: str
@@ -40,7 +45,8 @@ retriever = store.as_retriever(search_kwargs={"k": 3})
 
 
 def classify_node(state: AgentState):
-    intent = classify_intent(state["message"])
+    last_message = state["messages"][-1].content
+    intent = classify_intent(last_message)
     return {"intent": intent}
 
 
@@ -53,7 +59,7 @@ def crisis_node(state: AgentState):
         "Please also reach out to someone you trust or a mental health professional. "
         "You don't have to go through this alone."
     )
-    return {"answer": answer}
+    return {"answer": answer, "messages": [AIMessage(content=answer)]}
 
 
 def clinical_node(state: AgentState):
@@ -64,24 +70,30 @@ def clinical_node(state: AgentState):
         "I'm happy to share general information about mental health conditions "
         "if that would help."
     )
-    return {"answer": answer}
+    return {"answer": answer, "messages": [AIMessage(content=answer)]}
 
 
 def greeting_node(state: AgentState):
+    last_message = state["messages"][-1].content
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
             {"role": "system", "content": GREETING_PROMPT},
-            {"role": "user", "content": state["message"]},
+            {"role": "user", "content": last_message},
         ],
         temperature=0.5,
     )
-    return {"answer": response.choices[0].message.content}
+    answer = response.choices[0].message.content
+    return {
+        "answer": response.choices[0].message.content,
+        "messages": [AIMessage(content=answer)],
+    }
 
 
 def rag_node(state: AgentState):
-    answer = generate_answer(state["message"], retriever)
-    return {"answer": answer}
+    last_message = state["messages"][-1].content
+    answer = generate_answer(last_message, retriever)
+    return {"answer": answer, "messages": [AIMessage(content=answer)]}
 
 
 def route(state: AgentState):
@@ -113,20 +125,30 @@ builder.add_edge("clinical", END)
 builder.add_edge("greeting", END)
 builder.add_edge("rag", END)
 
-graph = builder.compile()
+checkpointer = MemorySaver()
+graph = builder.compile(checkpointer=checkpointer)
 
 
 if __name__ == "__main__":
+
+    config = {"configurable": {"thread_id": "conversation-1"}}
     tests = [
         "What are the symptoms of GAD?",
-        "Should I stop taking my SSRI?",
-        "I don't see the point in anything anymore.",
-        "hi there",
+        "How is it treated?",
     ]
 
     for msg in tests:
-        result = graph.invoke({"message": msg})
+        result = graph.invoke(
+            {"messages": [HumanMessage(content=msg)]},
+            config=config,
+        )
         print("\n" + "=" * 60)
         print(f"USER: {msg}")
         print(f"INTENT: {result['intent']}")
         print(f"ANSWER: {result['answer'][:200]}")
+
+    print("\n" + "=" * 60)
+    print("FULL CONVERSATION HISTORY:")
+    final_state = graph.get_state(config)
+    for m in final_state.values["messages"]:
+        print(f"  {type(m).__name__}: {m.content[:60]}")
