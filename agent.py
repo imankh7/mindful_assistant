@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     intent: str
     docs: List[Document]
     answer: str
+    risk_score: Annotated[int, lambda old, new: (old or 0) + new]
 
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -96,7 +97,41 @@ def rag_node(state: AgentState):
     return {"answer": answer, "messages": [AIMessage(content=answer)]}
 
 
+RISK_PROMPT = """Rate the emotional risk level of this message on a scale of 0 to 3.
+
+0: neutral or factual (e.g. "what are anxiety symptoms?")
+1: mild distress (e.g. "I've been stressed and tired")
+2: moderate distress (e.g. "I feel hopeless and can't cope")
+3: severe — self-harm, suicide, or life not worth living
+
+Message: {message}
+
+Respond with only a single digit: 0, 1, 2, or 3."""
+
+
+def risk_node(state: AgentState):
+    last_message = state["messages"][-1].content
+    prompt = RISK_PROMPT.format(message=last_message)
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+    )
+    verdict = response.choices[0].message.content.strip()
+    score = 0
+    for char in verdict:
+        if char in "0123":
+            score = int(char)
+            break
+    return {"risk_score": score}
+
+
+RISK_THRESHOLD = 4
+
+
 def route(state: AgentState):
+    if state["risk_score"] >= RISK_THRESHOLD:
+        return "CRISIS"
     return state["intent"]
 
 
@@ -104,11 +139,14 @@ builder = StateGraph(AgentState)
 
 builder.add_node("classify", classify_node)
 builder.add_node("crisis", crisis_node)
+builder.add_node("risk", risk_node)
 builder.add_node("clinical", clinical_node)
 builder.add_node("greeting", greeting_node)
 builder.add_node("rag", rag_node)
 
-builder.add_edge(START, "classify")
+builder.add_edge(START, "risk")
+builder.add_edge("risk", "classify")
+
 builder.add_conditional_edges(
     "classify",
     route,
@@ -134,7 +172,9 @@ if __name__ == "__main__":
     config = {"configurable": {"thread_id": "conversation-1"}}
     tests = [
         "What are the symptoms of GAD?",
-        "How is it treated?",
+        "I've been really stressed lately",
+        "work has been overwhelming and I'm exhausted",
+        "I just feel worn down and tired of everything",
     ]
 
     for msg in tests:
@@ -145,6 +185,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print(f"USER: {msg}")
         print(f"INTENT: {result['intent']}")
+        print(f"RISK (cumulative): {result['risk_score']}")
         print(f"ANSWER: {result['answer'][:200]}")
 
     print("\n" + "=" * 60)

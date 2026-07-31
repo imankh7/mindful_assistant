@@ -7,7 +7,7 @@ client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 CLASSIFY_PROMPT = """ Classify users' message exactly to one of the categories.
 
-CRISIS: expressions of hopeless, worhtless, self-harm, suicide or that life has no point.
+CRISIS: EXPLICIT statements of suicidal thoughts, self-harm, or that they want to die or end their life. Only use this for direct, unambiguous danger — not general sadness or stress.
 CLINICAL_ADVICE: asking about their OWN situation — whether they have a condition, what they personally should do, or advice about their own medication or dosages.
 PSYCHOEDUCATION: general questions about conditions, symptoms, or treatments that are NOT about the user's personal situation.
 GREETING: greeting, small talk or questions what you can do.
