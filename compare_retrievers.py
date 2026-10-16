@@ -21,7 +21,7 @@ def evaluate_retriever(retriever, label):
     for item in gold_set:
         question = item["question"]
 
-        results = retriever.invoke(question)
+        results = retriever.invoke(question)[:K]
 
         relevant_count = 0
         for doc in results:
