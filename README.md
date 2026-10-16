@@ -2,7 +2,7 @@
 
 A safety-aware, agentic Retrieval-Augmented Generation (RAG) assistant that answers questions about anxiety using authoritative public-health content from the U.S. National Institute of Mental Health (NIMH). It is built to demonstrate production-minded RAG engineering: retrieval chosen by measurement rather than default, grounded and cited generation, hallucination checking with a validated LLM judge, layered crisis-safety handling, and a LangGraph agent that routes each message to the right response path.
 
-> **This is an educational information tool ‚Äî not a diagnostic tool, not therapy, and not a substitute for professional care.** If you or someone you know is in crisis, contact the 988 Suicide & Crisis Lifeline (call or text 988) or emergency services (911).
+> **This is an educational information tool, not a diagnostic tool, not therapy, and not a substitute for professional care.** If you or someone you know is in crisis, contact the 988 Suicide & Crisis Lifeline (call or text 988) or emergency services (911).
 
 ---
 
@@ -10,11 +10,11 @@ A safety-aware, agentic Retrieval-Augmented Generation (RAG) assistant that answ
 
 Each user message goes through a stateful agent that first scores emotional risk and classifies intent, then routes the message down one of five paths:
 
-- **Psychoeducation** ‚Äî grounded question-answering from a vector knowledge base, with a cited source.
-- **Support** ‚Äî a warm, scoped acknowledgement when the user shares stress or a hard time, encouraging human and professional support.
-- **Clinical advice** ‚Äî a fixed, safe redirect: no diagnosis, no medication guidance.
-- **Crisis** ‚Äî a fixed, compassionate response with hotline resources; no retrieval or generation involved.
-- **Greeting** ‚Äî a scoped welcome that discloses what the assistant is and isn't.
+- **Psychoeducation**: grounded question-answering from a vector knowledge base, with a cited source.
+- **Support**: a warm, scoped acknowledgement when the user shares stress or a hard time, encouraging human and professional support.
+- **Clinical advice**: a fixed, safe redirect with no diagnosis and no medication guidance.
+- **Crisis**: a fixed, compassionate response with hotline resources; no retrieval or generation involved.
+- **Greeting**: a scoped welcome that discloses what the assistant is and isn't.
 
 Crisis handling is enforced **structurally**: crisis messages never reach the generation path, rather than relying on prompt instructions alone. The agent keeps conversation memory across turns and accumulates a risk score, so a gradual decline across several messages can trigger escalation even when no single message would.
 
@@ -24,31 +24,17 @@ Each major component was chosen by measuring alternatives against an evaluation 
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    START([User message]) --> risk[Risk scoring<br/>cumulative per thread]
-    risk --> classify[Intent classification]
-    classify -->|risk over threshold<br/>or CRISIS| crisis[Crisis<br/>fixed text]
-    classify -->|CLINICAL_ADVICE| clinical[Clinical redirect<br/>fixed text]
-    classify -->|PSYCHOEDUCATION| rag[RAG<br/>retrieve + generate]
-    classify -->|SUPPORT| support[Support<br/>constrained LLM]
-    classify -->|GREETING| greeting[Greeting<br/>constrained LLM]
-    crisis --> END([Response])
-    clinical --> END
-    rag --> END
-    support --> END
-    greeting --> END
-```
+Each message first gets a risk score, which accumulates across the conversation, and then an intent label. If the cumulative risk reaches the threshold or the intent is CRISIS, the message goes to the fixed crisis reply. Otherwise it goes to the clinical redirect, the RAG path, the support reply, or the greeting.
 
 **Pipeline stages**
 
-1. **Ingestion** (`ingest.py`) ‚Äî fetches NIMH pages, extracts the main content (including list items), and stores the text with provenance metadata (source, URL, date, authority tier) as JSON.
-2. **Chunking** (`chunk.py`) ‚Äî splits documents with LangChain's `RecursiveCharacterTextSplitter` (size 1000, overlap 200), keeping metadata on every chunk.
-3. **Embeddings** (`embed.py`) ‚Äî encodes chunks locally with `all-MiniLM-L6-v2` (384 dimensions). Local by design, so sensitive text never leaves the environment.
-4. **Vector store & retrieval** (`retrieve.py`) ‚Äî builds a FAISS index and retrieves by semantic similarity.
-5. **Generation** (`generate.py`) ‚Äî composes a grounded, cited answer from retrieved context under strict safety and grounding rules (sent as a system prompt).
-6. **Agent** (`agent.py`) ‚Äî a LangGraph state machine that scores risk, classifies intent, routes to the right handler, and persists conversation state.
-7. **Serving** (`app.py`) ‚Äî a FastAPI `/chat` endpoint, containerized with Docker.
+1. **Ingestion** (`ingest.py`): fetches NIMH pages, extracts the main content (including list items), and stores the text with provenance metadata (source, URL, date, authority tier) as JSON.
+2. **Chunking** (`chunk.py`): splits documents with LangChain's `RecursiveCharacterTextSplitter` (size 1000, overlap 200), keeping metadata on every chunk.
+3. **Embeddings** (`embed.py`): encodes chunks locally with `all-MiniLM-L6-v2` (384 dimensions). Local by design, so sensitive text never leaves the environment.
+4. **Vector store & retrieval** (`retrieve.py`): builds a FAISS index and retrieves by semantic similarity.
+5. **Generation** (`generate.py`): composes a grounded, cited answer from retrieved context under strict safety and grounding rules (sent as a system prompt).
+6. **Agent** (`agent.py`): a LangGraph state machine that scores risk, classifies intent, routes to the right handler, and persists conversation state.
+7. **Serving** (`app.py`): a FastAPI `/chat` endpoint, containerized with Docker.
 
 Model names live in one place (`config.py`), so switching models is a one-line change.
 
@@ -56,16 +42,16 @@ Model names live in one place (`config.py`), so switching models is a one-line c
 
 ## Key Features
 
-- **Measured retrieval** ‚Äî dense, sparse (BM25), hybrid (RRF fusion), and cross-encoder reranking compared on a labeled gold set; the simplest option within noise of the best was chosen.
-- **LLM-as-judge evaluation** ‚Äî automated Precision@k with an LLM labelling relevance, plus a separate faithfulness judge for hallucination detection.
-- **Validated evaluators** ‚Äî the faithfulness judge is checked with a negative-control set (known-good and known-bad answers) to confirm it actually discriminates.
-- **Grounded, cited generation** ‚Äî answers use only retrieved context and attribute their source.
-- **Layered crisis safety** ‚Äî an intent classifier for crisis signals, plus a cumulative risk score that escalates gradual decline across turns.
-- **Fail-safe defaults** ‚Äî when unsure between SUPPORT and CRISIS the classifier chooses CRISIS, and unparseable classifier output falls back to the fixed clinical reply, never to generation.
-- **Structural guardrails** ‚Äî crisis and clinical responses are fixed text, not model-generated, so they cannot hallucinate or drift.
-- **Conversation memory** ‚Äî multi-turn state via a LangGraph checkpointer, keyed by thread ID.
-- **Resilient evaluation** ‚Äî the relevance judge retries with exponential backoff on rate limits and caches verdicts per (question, chunk).
-- **Deployable** ‚Äî served over HTTP with FastAPI and packaged as a Docker container, with secrets injected at runtime.
+- **Measured retrieval**: dense, sparse (BM25), hybrid (RRF fusion), and cross-encoder reranking compared on a labeled gold set; the simplest option within noise of the best was chosen.
+- **LLM-as-judge evaluation**: automated Precision@k with an LLM labelling relevance, plus a separate faithfulness judge for hallucination detection.
+- **Validated evaluators**: the faithfulness judge is checked with a negative-control set (known-good and known-bad answers) to confirm it actually discriminates.
+- **Grounded, cited generation**: answers use only retrieved context and attribute their source.
+- **Layered crisis safety**: an intent classifier for crisis signals, plus a cumulative risk score that escalates gradual decline across turns.
+- **Fail-safe defaults**: when unsure between SUPPORT and CRISIS the classifier chooses CRISIS, and unparseable classifier output falls back to the fixed clinical reply, never to generation.
+- **Structural guardrails**: crisis and clinical responses are fixed text, not model-generated, so they cannot hallucinate or drift.
+- **Conversation memory**: multi-turn state via a LangGraph checkpointer, keyed by thread ID.
+- **Resilient evaluation**: the relevance judge retries with exponential backoff on rate limits and caches verdicts per (question, chunk).
+- **Deployable**: served over HTTP with FastAPI and packaged as a Docker container, with secrets injected at runtime.
 
 ---
 
@@ -104,9 +90,9 @@ Absolute numbers depend on the judge model. When the project migrated from Llama
 
 **Catching a measurement bug.** An early comparison was distorted because the ensemble (hybrid) retriever returns a variable number of chunks, so precision computed against a fixed *k* was wrong. Inspecting the actual retrieved chunks, not just the metric, revealed it. The fix: every retriever's results are truncated to the top *k* before judging, so all retrievers are scored on exactly *k* chunks.
 
-**Faithfulness.** Generated answers are judged for groundedness against their source context. The judge is validated with a negative-control test (`test_faithfulness_control.py`) covering invented statistics, overstated claims, invented treatment advice, and subtle factual contradictions ‚Äî 5/5 correctly classified.
+**Faithfulness.** Generated answers are judged for groundedness against their source context. The judge is validated with a negative-control test (`test_faithfulness_control.py`) covering invented statistics, overstated claims, invented treatment advice, and subtle factual contradictions. It classifies all 5 correctly.
 
-**Intent classification.** The classifier is checked against 11 labelled messages (`python classify.py`), including boundary cases such as passive crisis statements and "I'm stressed, is that a disorder?" ‚Äî 11/11 correct.
+**Intent classification.** The classifier is checked against 11 labelled messages (`python classify.py`), including boundary cases such as passive crisis statements and "I'm stressed, is that a disorder?". It passes 11/11.
 
 ---
 
@@ -191,7 +177,7 @@ This is a portfolio project built to demonstrate engineering rigor, and it is ho
 - **In-memory conversation state.** The checkpointer keeps history in RAM; production would use a persistent, database-backed store.
 - **Retrieval does not yet use conversation history.** Memory is used for risk tracking, but follow-up questions are retrieved on the latest message only.
 
-**Planned next steps:** index the depression corpus and more NIMH topics, grow the gold set to ~80‚Äì100 questions with an `expected_source` field and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
+**Planned next steps:** index the depression corpus and more NIMH topics, grow the gold set to ~80-100 questions with an `expected_source` field and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
 
 ---
 
