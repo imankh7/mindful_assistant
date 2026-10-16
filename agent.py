@@ -20,16 +20,14 @@ load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 
-GREETING_PROMPT = """You are greeting a user of a mental health information assistant.
+SUPPORT_PROMPT = """The user of a mental health information assistant is sharing that they feel stressed, tired, or are having a hard time.
 
-Respond warmly and briefly (2-3 sentences), matching their tone.
+Respond warmly and briefly (2-4 sentences):
+- Acknowledge what they shared, in your own words, without exaggerating or minimizing it.
+- Gently encourage them to talk with someone they trust or a mental health professional.
+- Offer to share general information about stress, anxiety, or depression if that would help.
 
-You MUST convey these three things:
-- You are an AI tool, not a therapist or doctor
-- You share general information about anxiety and depression from trusted sources
-- You cannot diagnose or give personal medical advice
-
-Do not add anything else. Do not offer to help with personal situations."""
+You are an AI tool, not a therapist. Do not diagnose, do not give personal advice, and do not ask probing questions about their situation."""
 
 
 class AgentState(TypedDict):
@@ -87,7 +85,24 @@ def greeting_node(state: AgentState):
     )
     answer = response.choices[0].message.content
     return {
-        "answer": response.choices[0].message.content,
+        "answer": answer,
+        "messages": [AIMessage(content=answer)],
+    }
+
+
+def support_node(state: AgentState):
+    last_message = state["messages"][-1].content
+    response = client.chat.completions.create(
+        model=SMALL_MODEL,
+        messages=[
+            {"role": "system", "content": SUPPORT_PROMPT},
+            {"role": "user", "content": last_message},
+        ],
+        temperature=0.5,
+    )
+    answer = response.choices[0].message.content
+    return {
+        "answer": answer,
         "messages": [AIMessage(content=answer)],
     }
 
@@ -144,6 +159,7 @@ builder.add_node("risk", risk_node)
 builder.add_node("clinical", clinical_node)
 builder.add_node("greeting", greeting_node)
 builder.add_node("rag", rag_node)
+builder.add_node("support", support_node)
 
 builder.add_edge(START, "risk")
 builder.add_edge("risk", "classify")
@@ -156,6 +172,7 @@ builder.add_conditional_edges(
         "CLINICAL_ADVICE": "clinical",
         "GREETING": "greeting",
         "PSYCHOEDUCATION": "rag",
+        "SUPPORT": "support",
     },
 )
 
@@ -163,6 +180,7 @@ builder.add_edge("crisis", END)
 builder.add_edge("clinical", END)
 builder.add_edge("greeting", END)
 builder.add_edge("rag", END)
+builder.add_edge("support", END)
 
 checkpointer = MemorySaver()
 graph = builder.compile(checkpointer=checkpointer)
