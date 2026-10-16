@@ -19,7 +19,7 @@ Every factual answer is generated *only* from retrieved source text and cites it
 
 The project was deliberately built the way a real system would be: each major component was chosen by measuring alternatives against an evaluation set.
 
---
+---
 
 ## Architecture
 
@@ -35,7 +35,7 @@ The system is a modular pipeline feeding a LangGraph agent:
 6. **Agent** (`agent.py`) a LangGraph state machine that scores risk, classifies intent, routes to the correct handler, and persists conversation state.
 7. **Serving** (`app.py`) a FastAPI `/chat` endpoint, containerized with Docker.
 
---
+---
 
 ## Key Features
 
@@ -84,7 +84,7 @@ A notable part of this work was catching a **measurement bug**: an early compari
 
 **Faithfulness.** Generated answers are judged for groundedness against their source context. The judge is validated with a negative-control test (`test_faithfulness_control.py`) covering invented statistics, overstated claims, invented treatment advice, and subtle factual contradictions — all correctly caught.
 
---
+---
 
 ## Safety Design
 
@@ -95,7 +95,7 @@ Safety is treated as an engineering problem, not a disclaimer:
 **Two-layer crisis detection:** an intent classifier catches explicit signals immediately; a cumulative risk score is a backstop for gradual decline that no single message would trip.
 **Scope boundaries:** the assistant never diagnoses, never advises on medication (start, stop, or change), never confirms or denies a user's beliefs about their own condition, discloses that it is an AI tool, and consistently directs users toward qualified professionals and human support.
 
---
+---
 
 ## Setup & Running
 
@@ -108,7 +108,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**2. Configure secrets** create a `.env` file
+**2. Configure secrets**
+Copy the example file and add your Groq API key to it:
+```bash
+cp .env.example .env
+```
 
 **3. Run locally**
 ```bash
