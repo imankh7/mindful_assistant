@@ -6,18 +6,18 @@ from config import SMALL_MODEL
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
-CLASSIFY_PROMPT = """ Classify users' message exactly to one of the categories.
+CLASSIFY_PROMPT = """Classify the user's message into exactly one of these categories.
 
-CRISIS: EXPLICIT statements of suicidal thoughts, self-harm, or that they want to die or end their life. Only use this for direct, unambiguous danger — not general sadness or stress.
-CLINICAL_ADVICE: asking about their OWN situation — whether they have a condition, what they personally should do, or advice about their own medication or dosages.
+CRISIS: statements of suicidal thoughts, self-harm, wanting to die, or not being able to go on — including passive ones like "I can't keep going" or "there's no point in living". Not ordinary sadness, stress, or tiredness.
+CLINICAL_ADVICE: the user ASKS something about their OWN situation — whether they have a condition, what they personally should do, or about their own medication or dosage.
 PSYCHOEDUCATION: general questions about conditions, symptoms, or treatments that are NOT about the user's personal situation.
-GREETING: greeting, small talk or questions what you can do.
+GREETING: only hellos, small talk, or questions about what you can do. Not messages that share how the user feels.
+SUPPORT: the user shares feelings, stress, tiredness, or a hard time, without asking about a condition or their own treatment and without any sign of danger. If unsure between SUPPORT and CRISIS, choose CRISIS.
 
-Message:{message}
+Message: {message}
 
-respond only with one word: CRISIS, CLINICAL_ADVICE, PSYCHOEDUATION or GREETING.
-
-Do not explain"""
+Respond with only one word: CRISIS, CLINICAL_ADVICE, PSYCHOEDUCATION, GREETING, or SUPPORT.
+Do not explain."""
 
 
 def classify_intent(message):
@@ -28,10 +28,16 @@ def classify_intent(message):
         temperature=0,
     )
     verdict = response.choices[0].message.content.strip().upper()
-    for label in ["CRISIS", "CLINICAL_ADVICE", "PSYCHOEDUCATION", "GREETING"]:
+    for label in [
+        "CRISIS",
+        "CLINICAL_ADVICE",
+        "PSYCHOEDUCATION",
+        "GREETING",
+        "SUPPORT",
+    ]:
         if label in verdict:
             return label
-    return "PSYCHOEDUCATION"  # safe path (for now)
+    return "CLINICAL_ADVICE"  # unparseable output: default to the fixed
 
 
 if __name__ == "__main__":
@@ -47,6 +53,12 @@ if __name__ == "__main__":
         ("PSYCHOEDUCATION", "What are the symptoms of generalized anxiety disorder?"),
         ("PSYCHOEDUCATION", "How is GAD treated?"),
         ("GREETING", "hi, what can you help me with?"),
+        ("SUPPORT", "I had a truly bad day, don't know what to do"),
+        (
+            "CLINICAL_ADVICE",
+            "I feel so tired mentally recently, Don't know maybe I have a mental disorder, what you think?",
+        ),
+        ("SUPPORT", "work has been overwhelming and I'm exhausted"),
     ]
 
     correct = 0
