@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
+from config import SMALL_MODEL
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -14,7 +15,7 @@ GREETING: greeting, small talk or questions what you can do.
 
 Message:{message}
 
-respond only with one word: CRISIS, CLINICAL ADVICE, PSYCHOEDUATION OR GREETING.
+respond only with one word: CRISIS, CLINICAL_ADVICE, PSYCHOEDUATION or GREETING.
 
 Do not explain"""
 
@@ -22,7 +23,7 @@ Do not explain"""
 def classify_intent(message):
     prompt = CLASSIFY_PROMPT.format(message=message)
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=SMALL_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )
@@ -30,7 +31,7 @@ def classify_intent(message):
     for label in ["CRISIS", "CLINICAL_ADVICE", "PSYCHOEDUCATION", "GREETING"]:
         if label in verdict:
             return label
-    return "PSYCHOEDUCATION"  # safe fallback (for now)
+    return "PSYCHOEDUCATION"  # safe path (for now)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
+from config import SMALL_MODEL
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -21,7 +22,7 @@ def judge_relevance(question, chunk):
     prompt = JUDGE_PROMPT.format(question=question, chunk=chunk)
 
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=SMALL_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )

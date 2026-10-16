@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
+from config import SMALL_MODEL
 
 load_dotenv()
 
@@ -23,7 +24,7 @@ Respond exactly with one word, GROUNDED or NOT_GROUNDED."""
 def judge_faithfulness(answer, source):
     prompt = FAITHFULNESS_PROMPT.format(source=source, answer=answer)
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=SMALL_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )

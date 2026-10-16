@@ -4,6 +4,7 @@ from groq import Groq
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from chunk import chunk_document
+from config import LARGE_MODEL
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -53,7 +54,7 @@ def generate_answer(question, retriever):
     )
     prompt = GENERATION_PROMPT.format(context=context, question=question)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=LARGE_MODEL,
         messages=[
             {"role": "user", "content": prompt},
             {"role": "user", "content": question},

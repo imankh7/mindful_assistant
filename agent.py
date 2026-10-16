@@ -14,6 +14,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
+from config import SMALL_MODEL
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -77,7 +78,7 @@ def clinical_node(state: AgentState):
 def greeting_node(state: AgentState):
     last_message = state["messages"][-1].content
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=SMALL_MODEL,
         messages=[
             {"role": "system", "content": GREETING_PROMPT},
             {"role": "user", "content": last_message},
@@ -113,7 +114,7 @@ def risk_node(state: AgentState):
     last_message = state["messages"][-1].content
     prompt = RISK_PROMPT.format(message=last_message)
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model=SMALL_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )
