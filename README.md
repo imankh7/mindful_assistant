@@ -1,6 +1,6 @@
 # Mindful Assistant
 
-A safety-aware, agentic Retrieval-Augmented Generation (RAG) assistant that answers questions about anxiety using authoritative public-health content from the U.S. National Institute of Mental Health (NIMH). It is built to demonstrate production-minded RAG engineering: retrieval chosen by measurement rather than default, grounded and cited generation, hallucination checking with a validated LLM judge, layered crisis-safety handling, and a LangGraph agent that routes each message to the right response path.
+A safety-aware, agentic Retrieval-Augmented Generation (RAG) assistant that answers questions about anxiety and depression using authoritative public-health content from the U.S. National Institute of Mental Health (NIMH). It is built to demonstrate production-minded RAG engineering: retrieval chosen by measurement rather than default, grounded and cited generation, hallucination checking with a validated LLM judge, layered crisis-safety handling, and a LangGraph agent that routes each message to the right response path.
 
 > **This is an educational information tool, not a diagnostic tool, not therapy, and not a substitute for professional care.** If you or someone you know is in crisis, contact the 988 Suicide & Crisis Lifeline (call or text 988) or emergency services (911).
 
@@ -29,7 +29,7 @@ Each message first gets a risk score, which accumulates across the conversation,
 **Pipeline stages**
 
 1. **Ingestion** (`ingest.py`): fetches NIMH pages, extracts the main content (including list items), and stores the text with provenance metadata (source, URL, date, authority tier) as JSON.
-2. **Chunking** (`chunk.py`): splits documents with LangChain's `RecursiveCharacterTextSplitter` (size 1000, overlap 200), keeping metadata on every chunk.
+2. **Chunking** (`chunk.py`): `load_corpus()` loads every JSON document in `data/processed/` and splits each with LangChain's `RecursiveCharacterTextSplitter` (size 1000, overlap 200), keeping metadata on every chunk. The corpus is currently the NIMH pages on generalized anxiety disorder and depression: 37 chunks.
 3. **Embeddings** (`embed.py`): encodes chunks locally with `all-MiniLM-L6-v2` (384 dimensions). Local by design, so sensitive text never leaves the environment.
 4. **Vector store & retrieval** (`retrieve.py`): builds a FAISS index and retrieves by semantic similarity.
 5. **Generation** (`generate.py`): composes a grounded, cited answer from retrieved context under strict safety and grounding rules (sent as a system prompt).
@@ -75,18 +75,18 @@ Models are right-sized to the task: the larger model for answer generation, the 
 
 Evaluation uses a hand-built **gold set** of 23 questions (`gold_set.py`), deliberately including paraphrased, casual, and specific-detail phrasings, so it stresses retrieval rather than flattering it.
 
-**Retrieval comparison** (Precision@3 on the 23-question gold set, judged by `gpt-oss-20b`):
+**Retrieval comparison** (Precision@3 on the 23-question gold set over the 37-chunk GAD + depression corpus, judged by `gpt-oss-20b`):
 
 | Retriever | Precision@3 |
 |---|---|
-| Dense (semantic) | 56.5% |
-| Sparse (BM25) | 47.8% |
+| Dense (semantic) | 58.0% |
+| Sparse (BM25) | 39.1% |
 | Hybrid (dense + sparse, RRF) | 53.6% |
 | Hybrid + cross-encoder rerank | 59.4% |
 
-**Chosen: dense retrieval.** Hybrid + rerank scored marginally higher, but the gap is two chunk judgements out of 69, which is within noise for a gold set this size. Dense is simpler and faster, so it is the better trade-off here. BM25 trails by about 9 points: on a small, clean, single-topic corpus, semantic matching already captures what keyword matching would. Hybrid search and reranking are expected to pay off on a larger, multi-topic corpus, so the decision is documented to be revisited at scale.
+**Chosen: dense retrieval.** Hybrid + rerank scored marginally higher, but the gap is one chunk judgement out of 69, which is within noise for a gold set this size. Dense is simpler and faster, so it is the better trade-off here. BM25 trails by about 19 points. It dropped the most when the depression page joined the corpus, because the two NIMH pages share generic wording ("treatment", "medication", "help") and keyword matching pulls in chunks from the wrong page. Dense, hybrid, and rerank held steady: the depression chunks they retrieved often overlap in content with the GAD page (medication, therapy, finding help) and were judged relevant. Hybrid search and reranking are expected to pay off on a larger, noisier corpus, so the decision is documented to be revisited as the corpus grows.
 
-Absolute numbers depend on the judge model. When the project migrated from Llama 3.1 8B to `gpt-oss-20b` as the judge, all scores dropped because the new judge is stricter. With only 16 chunks, many questions have a single relevant chunk, which caps Precision@3 at 33% for those questions. The comparison *between* retrievers under the same judge is what the decision rests on.
+Absolute numbers depend on the judge model. When the project migrated from Llama 3.1 8B to `gpt-oss-20b` as the judge, all scores dropped because the new judge is stricter. The gold set covers GAD only, so most questions can be answered by just a few of the 37 chunks, and many have a single relevant chunk, which caps Precision@3 at 33% for those questions. The comparison *between* retrievers under the same judge is what the decision rests on.
 
 **Catching a measurement bug.** An early comparison was distorted because the ensemble (hybrid) retriever returns a variable number of chunks, so precision computed against a fixed *k* was wrong. Inspecting the actual retrieved chunks, not just the metric, revealed it. The fix: every retriever's results are truncated to the top *k* before judging, so all retrievers are scored on exactly *k* chunks.
 
@@ -161,7 +161,7 @@ python test_safety.py               # adversarial safety cases for generation
 
 ## Design Decisions
 
-Major architectural decisions and their reasoning are recorded in [`DECISIONS.md`](./DECISIONS.md): the chunking strategy, local embeddings for privacy, the all-LangChain framework, the measured retrieval decision, the LLM provider and the model migration, the safety architecture, the SUPPORT intent, and rate-limit handling. Each entry notes the alternatives considered and what would be reconsidered at scale.
+Major architectural decisions and their reasoning are recorded in [`DECISIONS.md`](./DECISIONS.md): the chunking strategy, local embeddings for privacy, the all-LangChain framework, the measured retrieval decision, the LLM provider and the model migration, the safety architecture, the SUPPORT intent, rate-limit handling, risk-score decay, and loading the whole corpus. Each entry notes the alternatives considered and what would be reconsidered at scale.
 
 ---
 
@@ -169,7 +169,7 @@ Major architectural decisions and their reasoning are recorded in [`DECISIONS.md
 
 This is a portfolio project built to demonstrate engineering rigor, and it is honest about its scope:
 
-- **Single-topic corpus.** The knowledge base currently covers generalized anxiety disorder only. A depression document is ingested but not yet indexed; a multi-topic corpus is the natural next step and would likely shift the retrieval trade-offs toward hybrid search and reranking.
+- **Small corpus, GAD-only gold set.** The knowledge base covers two NIMH pages (generalized anxiety disorder and depression). The gold set has GAD questions only, so depression retrieval is not measured yet. Precision@3 also cannot catch a depression chunk being used to answer an anxiety question, which could present depression guidance as anxiety guidance.
 - **Small evaluation set.** 23 questions mean small metric differences are noisy; results are read as directional, not exact.
 - **Risk threshold needs re-calibration.** The cumulative risk threshold was tuned on a previous model and needs re-calibration against a labelled set of risk messages.
 - **Crisis resources over-appear.** The generation model sometimes adds crisis resources to non-crisis answers; the prompt's safety override needs tuning for the new model.
@@ -177,7 +177,7 @@ This is a portfolio project built to demonstrate engineering rigor, and it is ho
 - **In-memory conversation state.** The checkpointer keeps history in RAM; production would use a persistent, database-backed store.
 - **Retrieval does not yet use conversation history.** Memory is used for risk tracking, but follow-up questions are retrieved on the latest message only.
 
-**Planned next steps:** index the depression corpus and more NIMH topics, grow the gold set to ~80-100 questions with an `expected_source` field and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
+**Planned next steps:** add more NIMH topics, grow the gold set to ~80-100 questions with depression and cross-topic questions, an `expected_source` field, and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
 
 ---
 
