@@ -73,20 +73,24 @@ Models are right-sized to the task: the larger model for answer generation, the 
 
 ## Evaluation & Results
 
-Evaluation uses a hand-built **gold set** of 55 questions (`gold_set.py`): 23 about GAD, 20 about depression, 6 cross-topic questions answerable from both pages, and 6 out-of-scope questions the corpus cannot answer. It deliberately includes paraphrased, casual, and specific-detail phrasings, so it stresses retrieval rather than flattering it. Each item records its category and the page(s) that should answer it, and `validate_gold_set.py` checks that every expected phrase really appears in its source page and fits inside one chunk.
+Evaluation uses a hand-built **gold set** of 55 questions (`gold_set.py`): 22 about GAD, 20 about depression, 7 cross-topic questions answerable from both pages, and 6 out-of-scope questions the corpus cannot answer. It deliberately includes paraphrased, casual, and specific-detail phrasings, so it stresses retrieval rather than flattering it. Each item records its category and the page(s) that should answer it, and `validate_gold_set.py` checks that every expected phrase really appears in its source page and fits inside one chunk.
 
 **Retrieval comparison** (49 in-scope questions over the 37-chunk GAD + depression corpus, judged by `gpt-oss-20b`):
 
-| Retriever | Precision@3 | Source Hit@3 |
-|---|---|---|
-| Dense (semantic) | 59.2% | 100% |
-| Sparse (BM25) | 38.8% | 98.0% |
-| Hybrid (dense + sparse, RRF) | 53.7% | 100% |
-| Hybrid + cross-encoder rerank | 58.5% | 98.0% |
+| Retriever | Precision@3 | Source Hit@3 | Coverage@3 (cross-topic) |
+|---|---|---|---|
+| Dense (semantic) | 59.2% | 100% | 6/7 |
+| Sparse (BM25) | 38.8% | 98.0% | 5/7 |
+| Hybrid (dense + sparse, RRF) | 53.7% | 100% | 5/7 |
+| Hybrid + cross-encoder rerank | 58.5% | 100% | 3/7 |
 
-Precision@3 is the share of the top 3 chunks the judge rates relevant. Source Hit@3 is the share of questions where at least one of the top 3 chunks comes from the page that should answer it; it shows whether retrieval finds the right page, which Precision@3 cannot see. Results per category (GAD, depression, cross-topic) are in [`DECISIONS.md`](./DECISIONS.md) (decision 15).
+- **Precision@3**: the share of the top 3 chunks the judge rates relevant.
+- **Source Hit@3**: the share of questions where at least one of the top 3 chunks comes from a page that should answer it. It shows whether retrieval finds the right page, which Precision@3 cannot see. With only two pages it is close to its ceiling even by chance: a retriever picking 3 of the 37 chunks at random would score about 89% (83% on GAD questions, 93% on depression questions). So the 98-100% results are only modestly better than chance; the metric is meant for the larger corpus, where a random hit becomes unlikely.
+- **Source Coverage@3**: for the 7 cross-topic questions, whether the top 3 included *both* pages. Source Hit@3 is always met for these as soon as either page appears, so coverage is the stricter check.
 
-**Chosen: dense retrieval.** Neither hybrid nor rerank beats it. Dense and rerank differ by one chunk judgement out of 147, which is within noise, and dense is simpler and faster. Hybrid trails dense in every category. BM25 trails by about 20 points, because the two NIMH pages share generic wording ("treatment", "medication", "help") and keyword matching pulls in chunks from the wrong page. Dense is the only retriever that is both top on precision and finds the right page for every question. Hybrid search and reranking are expected to pay off on a larger, noisier corpus, so the decision is documented to be revisited as the corpus grows.
+Results per category (GAD, depression, cross-topic) are in [`DECISIONS.md`](./DECISIONS.md) (decision 15).
+
+**Chosen: dense retrieval.** Neither hybrid nor rerank beats it. Dense and rerank differ by one chunk judgement out of 147, which is within noise, and dense is simpler and faster. Hybrid trails dense in every category. BM25 trails by about 20 points, because the two NIMH pages share generic wording ("treatment", "medication", "help") and keyword matching pulls in chunks from the wrong page. Dense also has the best coverage on cross-topic questions, finding both pages for 6 of 7; the reranker tends to fill all three slots from one page and finds both for only 3. Hybrid search and reranking are expected to pay off on a larger, noisier corpus, so the decision is documented to be revisited as the corpus grows.
 
 Absolute numbers depend on the judge model. When the project migrated from Llama 3.1 8B to `gpt-oss-20b` as the judge, all scores dropped because the new judge is stricter. Many questions have a single relevant chunk, which caps Precision@3 at 33% for those questions. The comparison *between* retrievers under the same judge is what the decision rests on.
 
@@ -94,7 +98,7 @@ Absolute numbers depend on the judge model. When the project migrated from Llama
 
 **Faithfulness.** Generated answers are judged for groundedness against their source context. The judge is validated with a negative-control test (`test_faithfulness_control.py`) covering invented statistics, overstated claims, invented treatment advice, and subtle factual contradictions. It classifies all 5 correctly.
 
-**Out-of-scope questions.** For the 6 questions the corpus cannot answer (dosages, other conditions, unrelated topics), `evaluate_out_of_scope.py` checks that the generated answer declines instead of inventing facts. An LLM judge decides, after passing a negative control (one refusal, one invented dose). All 6 were declined. A simpler refusal-phrase check agreed on all 6, but only after normalising curly apostrophes ("don’t"), which shows how brittle phrase matching is.
+**Out-of-scope questions.** For the 6 questions the corpus cannot answer (dosages, other conditions, unrelated topics), `evaluate_out_of_scope.py` checks that the generated answer declines instead of inventing facts. An LLM judge decides, after passing a negative control (one refusal, one invented dose). All 6 were declined. A simpler refusal-phrase check first missed 5 of 6 refusals because the model writes curly apostrophes ("don’t"). Even after normalising them it agreed with the judge on 6 of 6 in one run and only 5 of 6 in the next, since the generator words its refusals differently each time. That brittleness is why the judge makes the call.
 
 **Intent classification.** The classifier is checked against 11 labelled messages (`python classify.py`), including boundary cases such as passive crisis statements and "I'm stressed, is that a disorder?". It passes 11/11.
 
@@ -176,7 +180,7 @@ Major architectural decisions and their reasoning are recorded in [`DECISIONS.md
 This is a portfolio project built to demonstrate engineering rigor, and it is honest about its scope:
 
 - **Small corpus.** The knowledge base covers two NIMH pages (generalized anxiety disorder and depression). The metrics also cannot catch a depression chunk being used to answer an anxiety question, which could present depression guidance as anxiety guidance.
-- **Small evaluation set.** 49 in-scope questions mean small metric differences are noisy, and with only 6 cross-topic and 6 out-of-scope questions, per-category results for those are anecdotal; results are read as directional, not exact. The depression questions were written while reading the page, so they may match its wording more closely than the GAD questions do.
+- **Small evaluation set.** 49 in-scope questions mean small metric differences are noisy, and with only 7 cross-topic and 6 out-of-scope questions, per-category results for those are anecdotal; results are read as directional, not exact. The depression questions were written while reading the page, so they may match its wording more closely than the GAD questions do.
 - **Risk scoring is not validated.** The decay factor was chosen with arithmetic and tested on two conversations, and the threshold was tuned on a previous model. Neither has been validated against a labelled set of risk messages. Also, one calm message can drop the score back below the threshold, so a thread can leave crisis routing after a single reassuring reply.
 - **Crisis resources over-appear.** The generation model sometimes adds crisis resources to non-crisis answers; the prompt's safety override needs tuning for the new model.
 - **Crisis handling is a conservative baseline, not clinically validated.** It errs toward caution, but real deployment would require clinical review and far more robust, tested detection.
