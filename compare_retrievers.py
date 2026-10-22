@@ -9,16 +9,18 @@ from langchain_classic.retrievers.contextual_compression import (
 )
 from chunk import load_corpus
 from gold_set import gold_set
-from judge import judge_relevance
+from judge import judge_relevance, cache_stats
+from metrics import in_scope, source_hit, summarize, print_summary
 
 K = 3
+METRICS = [f"precision@{K}", f"source_hit@{K}"]
 
 
 def evaluate_retriever(retriever, label):
-    precisions = []
+    rows = []
     print(f"\n--- {label} ---")
 
-    for item in gold_set:
+    for item in in_scope(gold_set):
         question = item["question"]
 
         results = retriever.invoke(question)[:K]
@@ -28,12 +30,17 @@ def evaluate_retriever(retriever, label):
             if judge_relevance(question, doc.page_content):
                 relevant_count += 1
 
-        question_precision = relevant_count / len(results) if results else 0
-        precisions.append(question_precision)
+        rows.append(
+            {
+                "category": item["category"],
+                METRICS[0]: relevant_count / len(results) if results else 0,
+                METRICS[1]: 1 if source_hit(results, item) else 0,
+            }
+        )
 
-    avg = sum(precisions) / len(precisions)
-    print(f"Mean Precision@{K}: {avg:.1%}")
-    return avg
+    summary = summarize(rows, METRICS)
+    print_summary(summary, METRICS)
+    return summary
 
 
 if __name__ == "__main__":
@@ -74,8 +81,18 @@ if __name__ == "__main__":
         base_retriever=hybrid_broad,
     )
 
-    # Run all three through the same evaluation
-    evaluate_retriever(dense, "DENSE (semantic)")
-    evaluate_retriever(sparse, "SPARSE (BM25 keyword)")
-    evaluate_retriever(hybrid, "HYBRID (dense + sparse, RRF)")
-    evaluate_retriever(reranked, "HYBRID + RERANK (cross-encoder)")
+    # Run all four through the same evaluation
+    results = {
+        "dense": evaluate_retriever(dense, "DENSE (semantic)"),
+        "sparse": evaluate_retriever(sparse, "SPARSE (BM25 keyword)"),
+        "hybrid": evaluate_retriever(hybrid, "HYBRID (dense + sparse, RRF)"),
+        "rerank": evaluate_retriever(reranked, "HYBRID + RERANK (cross-encoder)"),
+    }
+
+    print(f"\n=== Overall ({results['dense']['overall']['n']} in-scope questions) ===")
+    print(f"{'retriever':<10}" + "".join(f"{name:>16}" for name in METRICS))
+    for name, summary in results.items():
+        overall = summary["overall"]
+        print(f"{name:<10}" + "".join(f"{overall[m]:>16.1%}" for m in METRICS))
+
+    print(f"\nJudge cache: {cache_stats['hits']} hits, {cache_stats['api_calls']} API calls")

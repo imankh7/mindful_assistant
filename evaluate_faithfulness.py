@@ -4,19 +4,21 @@ from chunk import load_corpus
 from gold_set import gold_set
 from generate import generate_answer
 from faithfulness import judge_faithfulness
+from metrics import in_scope
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 documents = load_corpus()
 store = FAISS.from_documents(documents, embeddings)
 retriever = store.as_retriever(search_kwargs={"k": 3})
 
+items = in_scope(gold_set)
 faithful_count = 0
 results_log = []
 
-print(f"\nEvaluating faithfulness on {len(gold_set)} questions\n")
+print(f"\nEvaluating faithfulness on {len(items)} in-scope questions\n")
 print("=" * 70)
 
-for item in gold_set:
+for item in items:
     question = item["question"]
 
     docs = retriever.invoke(question)
@@ -33,9 +35,9 @@ for item in gold_set:
     print(f"[{status}] {question}")
     results_log.append((question, answer, is_faithful))
 
-rate = faithful_count / len(gold_set)
+rate = faithful_count / len(items)
 print("=" * 70)
-print(f"\nFaithfulness rate: {faithful_count}/{len(gold_set)} = {rate:.1%}")
+print(f"\nFaithfulness rate: {faithful_count}/{len(items)} = {rate:.1%}")
 
 for q, a, ok in results_log:
     if not ok:
