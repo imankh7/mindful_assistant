@@ -57,6 +57,8 @@ Each entry records the decision, the alternatives considered, the reasoning, and
 
 **Judge dependence:** Absolute scores dropped when the judge changed from Llama 3.1 8B to `gpt-oss-20b` (see decision 5), because the new judge is stricter. With only 16 chunks, many questions have a single relevant chunk, which caps Precision@3 at 33% for them. The decision rests on the comparison between retrievers under the same judge, not on absolute numbers.
 
+**Update:** These numbers are from the GAD-only corpus. Decision 14 re-runs the comparison after the depression page joined the corpus.
+
 **Reconsider at scale:** Hybrid search and reranking are expected to pull ahead on larger, noisier, or jargon-heavy corpora, and on exact-term queries (drug names, codes). Revisit both when the knowledge base grows, and test a stronger reranker (`bge-reranker-v2-m3`) then. Treat differences under ~10 points as suggestive, not conclusive, until the gold set is larger.
 
 ---
@@ -181,5 +183,27 @@ The factor was chosen with arithmetic, not by feel. If a user keeps sending mess
 
 **Results:** The original four-message test conversation was rated 0, 1, 1, 1 and scored 0.00, 1.00, 1.70, 2.19, staying on normal routing (SUPPORT), as it should for mild venting. A second test conversation (`agent.py`, thread `conversation-2`) sends three messages that are each rated 2 but classified SUPPORT, so only the risk score can escalate. It scored 2.00, 3.40, 4.38 and routed to crisis on the third message while the classifier still said SUPPORT, which confirms the decay catches gradual decline on its own. An earlier version of that test used "I feel hopeless and can't cope", but the classifier routed it to CRISIS on the first message, which hid the risk score's effect. The test messages now have to be rated 2 by the risk model while the classifier still says SUPPORT.
 
-**Reconsider:** The 0.5-0.75 range assumes the current threshold of 4 and the current model's ratings. Re-derive it if either changes. As with decision 9, these values are not clinically validated.
+**Reconsider:** The 0.5-0.75 range assumes the current threshold of 4 and the current model's ratings. Re-derive it if either changes. After the score crosses the threshold, one calm message (rated 0) multiplies it by 0.7 and can drop it back below 4 (4.38 becomes 3.07), so consider whether a sticky crisis mode that holds for a few turns would be safer. As with decision 9, these values are not clinically validated.
 
+
+---
+
+## 14. Corpus loading: every document in `data/processed/`
+
+**Decision:** `load_corpus()` in `chunk.py` chunks every `.json` file in `data/processed/`, in sorted order, and returns one combined list. All 11 places that hard-coded `data/processed/gad.json` now call it, so adding a document no longer means editing every script. The first effect is that `depression.json`, which was already ingested but never loaded, joins the corpus: 37 chunks instead of 16.
+
+**Alternatives considered:** Listing the files explicitly in `config.py`; keeping per-script paths.
+
+**Reasoning:** A folder scan makes the corpus whatever has been ingested, with one place to change if that rule changes. Files are sorted because `glob` order depends on the operating system, and the order of documents in FAISS affects retrieval ties and evaluation runs. Only `*.json` is matched, since the folder also holds the `.txt` copies. An empty folder raises a clear error instead of letting FAISS fail later. Nothing in the code reads `chunk_index` (which now restarts at 0 for each file); `source` + `chunk_index` stays unique, and the relevance judge caches by chunk text.
+
+**Retrieval comparison on the larger corpus (same 23 GAD gold questions, same judge, Precision@3):**
+- Dense: 56.5% → 58.0% (+1 of 69 judgements)
+- Sparse (BM25): 47.8% → 39.1% (−6)
+- Hybrid: 53.6% → 53.6% (unchanged)
+- Hybrid + rerank: 59.4% → 59.4% (unchanged)
+
+Counting retrieved chunks by source explains the pattern. Of the 69 chunks each retriever returned for the GAD questions, depression chunks made up 8 for dense, 19 for hybrid, 21 for rerank and 29 for BM25. BM25 dropped the most because the two NIMH pages share generic wording ("treatment", "medication", "help"), so keyword matching pulls in the wrong page. Hybrid and rerank also retrieved many depression chunks without losing precision: the pages overlap in content (SSRIs, psychotherapy, finding help, co-occurring anxiety and depression), and the judge scores whether a chunk helps answer the question, not which page it came from. Dense's +1 is within noise.
+
+**Conclusion:** Decision 4 stands. Dense remains the simple choice, and its gap to hybrid + rerank shrank from two judgements to one. The expectation that hybrid gains on a larger corpus did not hold here, but the corpus grew with a closely related page rather than a noisier or more jargon-heavy one.
+
+**Reconsider:** Precision@3 cannot see one risk: a depression chunk judged relevant to an anxiety question (for example on medication) could lead the generator to present depression guidance as anxiety guidance. Measure faithfulness on mixed-source answers, and consider filtering or boosting by `source` when the question names a condition. The gold set is GAD-only, so depression retrieval is not measured at all; add depression questions, and some that span both pages, before adding more documents.
