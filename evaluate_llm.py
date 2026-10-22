@@ -1,11 +1,11 @@
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from chunk import chunk_document
+from chunk import load_corpus
 from gold_set import gold_set
 from judge import judge_relevance
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-documents = chunk_document("data/processed/gad.json")
+documents = load_corpus()
 
 print("Building index ...")
 store = FAISS.from_documents(documents, embeddings)

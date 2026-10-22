@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from groq import Groq
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from chunk import chunk_document
+from chunk import load_corpus
 from config import LARGE_MODEL
 
 load_dotenv()
@@ -67,7 +67,7 @@ def generate_answer(question, retriever):
 
 if __name__ == "__main__":
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    documents = chunk_document("data/processed/gad.json")
+    documents = load_corpus()
     store = FAISS.from_documents(documents, embeddings)
     retriever = store.as_retriever(search_kwargs={"k": 3})
 

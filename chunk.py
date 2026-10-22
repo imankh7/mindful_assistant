@@ -1,5 +1,6 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from pathlib import Path
 import json
 
 
@@ -28,8 +29,22 @@ def chunk_document(input_path):
     return documents
 
 
+def load_corpus(folder="data/processed"):
+    # Sorted so the corpus order (and so retrieval/eval results) is reproducible.
+    paths = sorted(Path(folder).glob("*.json"))
+    if not paths:
+        raise FileNotFoundError(f"No .json documents found in {folder}")
+
+    documents = []
+    for path in paths:
+        documents.extend(chunk_document(path))
+
+    print(f"Loaded {len(documents)} chunks from {len(paths)} documents")
+    return documents
+
+
 if __name__ == "__main__":
-    chunks = chunk_document("data/processed/gad.json")
+    chunks = load_corpus()
 
     first = chunks[0]
     print("-" * 60)

@@ -1,9 +1,9 @@
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from chunk import chunk_document
+from chunk import load_corpus
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-documents = chunk_document("data/processed/gad.json")
+documents = load_corpus()
 print("Building FAISS index...")
 store = FAISS.from_documents(documents, embeddings)
 print(f"Index built with {store.index.ntotal} vectors.")

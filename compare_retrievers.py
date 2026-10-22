@@ -7,7 +7,7 @@ from langchain_classic.retrievers.document_compressors import CrossEncoderRerank
 from langchain_classic.retrievers.contextual_compression import (
     ContextualCompressionRetriever,
 )
-from chunk import chunk_document
+from chunk import load_corpus
 from gold_set import gold_set
 from judge import judge_relevance
 
@@ -38,7 +38,7 @@ def evaluate_retriever(retriever, label):
 
 if __name__ == "__main__":
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    documents = chunk_document("data/processed/gad.json")
+    documents = load_corpus()
 
     # 1: Dense retriever(semantic)
     store = FAISS.from_documents(documents, embeddings)

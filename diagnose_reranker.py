@@ -7,10 +7,10 @@ from langchain_classic.retrievers.document_compressors import CrossEncoderRerank
 from langchain_classic.retrievers.contextual_compression import (
     ContextualCompressionRetriever,
 )
-from chunk import chunk_document
+from chunk import load_corpus
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-documents = chunk_document("data/processed/gad.json")
+documents = load_corpus()
 
 store = FAISS.from_documents(documents, embeddings)
 sparse = BM25Retriever.from_documents(documents)

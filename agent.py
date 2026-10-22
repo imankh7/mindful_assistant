@@ -5,7 +5,7 @@ from classify import classify_intent
 from generate import generate_answer
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from chunk import chunk_document
+from chunk import load_corpus
 from groq import Groq
 import os
 from dotenv import load_dotenv
@@ -40,7 +40,7 @@ class AgentState(TypedDict):
 
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-documents = chunk_document("data/processed/gad.json")
+documents = load_corpus()
 store = FAISS.from_documents(documents, embeddings)
 retriever = store.as_retriever(search_kwargs={"k": 3})
 

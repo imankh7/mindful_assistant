@@ -1,5 +1,5 @@
 from sentence_transformers import SentenceTransformer
-from chunk import chunk_document
+from chunk import load_corpus
 
 
 def embed_chunks(documents, model):
@@ -11,7 +11,7 @@ def embed_chunks(documents, model):
 if __name__ == "__main__":
     print("Loading model ...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    documents = chunk_document("data/processed/gad.json")
+    documents = load_corpus()
     vectors = embed_chunks(documents, model)
     print(f"Number of chunks: {len(documents)}")
     print(f"Number of vectors: {len(vectors)}")
