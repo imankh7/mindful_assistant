@@ -102,7 +102,7 @@ Safety is treated as an engineering problem, not a disclaimer:
 
 - **Crisis and clinical replies are fixed text**, not model-generated, so they cannot hallucinate or be prompted into unsafe output.
 - **Crisis messages bypass retrieval and generation entirely.** The agent routes them straight to a compassionate response with hotline resources (988 / 911), so a safe reply never depends on what the vector search returned.
-- **Two-layer crisis detection:** the intent classifier catches crisis signals immediately, including passive ones ("I can't keep going"); the cumulative risk score is a backstop for gradual decline that no single message would trip.
+- **Two-layer crisis detection:** the intent classifier catches crisis signals immediately, including passive ones ("I can't keep going"); the cumulative risk score is a backstop for gradual decline that no single message would trip. The score decays each turn (`old × 0.7 + new`), so sustained moderate distress escalates by the third message while mild venting never does, and an old spike fades instead of locking the thread in crisis.
 - **Fail toward safety:** when unsure between SUPPORT and CRISIS, the classifier chooses CRISIS; unparseable output defaults to the fixed clinical reply.
 - **Scope boundaries:** the assistant never diagnoses, never matches a user's described symptoms to diagnostic criteria, never advises on medication (start, stop, or change), never confirms or denies a user's beliefs about their own condition, discloses that it is an AI tool, and consistently directs users toward qualified professionals and human support.
 - **Defense in depth:** the generation prompt enforces the same boundaries, so even a message the classifier misroutes is still answered safely (`test_safety.py` checks this layer on its own).
@@ -171,7 +171,7 @@ This is a portfolio project built to demonstrate engineering rigor, and it is ho
 
 - **Small corpus, GAD-only gold set.** The knowledge base covers two NIMH pages (generalized anxiety disorder and depression). The gold set has GAD questions only, so depression retrieval is not measured yet. Precision@3 also cannot catch a depression chunk being used to answer an anxiety question, which could present depression guidance as anxiety guidance.
 - **Small evaluation set.** 23 questions mean small metric differences are noisy; results are read as directional, not exact.
-- **Risk threshold needs re-calibration.** The cumulative risk threshold was tuned on a previous model and needs re-calibration against a labelled set of risk messages.
+- **Risk scoring is not validated.** The decay factor was chosen with arithmetic and tested on two conversations, and the threshold was tuned on a previous model. Neither has been validated against a labelled set of risk messages. Also, one calm message can drop the score back below the threshold, so a thread can leave crisis routing after a single reassuring reply.
 - **Crisis resources over-appear.** The generation model sometimes adds crisis resources to non-crisis answers; the prompt's safety override needs tuning for the new model.
 - **Crisis handling is a conservative baseline, not clinically validated.** It errs toward caution, but real deployment would require clinical review and far more robust, tested detection.
 - **In-memory conversation state.** The checkpointer keeps history in RAM; production would use a persistent, database-backed store.
