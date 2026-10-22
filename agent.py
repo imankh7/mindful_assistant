@@ -14,7 +14,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
-from config import SMALL_MODEL
+from config import SMALL_MODEL, RISK_DECAY, RISK_THRESHOLD
 
 load_dotenv()
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -35,7 +35,8 @@ class AgentState(TypedDict):
     intent: str
     docs: List[Document]
     answer: str
-    risk_score: Annotated[int, lambda old, new: (old or 0) + new]
+    # Decays once per update, so only risk_node should return risk_score.
+    risk_score: Annotated[float, lambda old, new: (old or 0) * RISK_DECAY + new]
 
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
@@ -142,9 +143,6 @@ def risk_node(state: AgentState):
     return {"risk_score": score}
 
 
-RISK_THRESHOLD = 4
-
-
 def route(state: AgentState):
     if state["risk_score"] >= RISK_THRESHOLD:
         return "CRISIS"
@@ -186,6 +184,20 @@ checkpointer = MemorySaver()
 graph = builder.compile(checkpointer=checkpointer)
 
 
+def run_conversation(config, tests):
+    for msg in tests:
+        result = graph.invoke(
+            {"messages": [HumanMessage(content=msg)]},
+            config=config,
+        )
+        print("\n" + "=" * 60)
+        print(f"USER: {msg}")
+        print(f"INTENT: {result['intent']}")
+        print(f"RISK (cumulative): {result['risk_score']:.2f}")
+        print(f"ROUTE: {route(result)}")
+        print(f"ANSWER: {result['answer'][:200]}")
+
+
 if __name__ == "__main__":
 
     config = {"configurable": {"thread_id": "conversation-1"}}
@@ -195,17 +207,18 @@ if __name__ == "__main__":
         "work has been overwhelming and I'm exhausted",
         "I just feel worn down and tired of everything",
     ]
+    run_conversation(config, tests)
 
-    for msg in tests:
-        result = graph.invoke(
-            {"messages": [HumanMessage(content=msg)]},
-            config=config,
-        )
-        print("\n" + "=" * 60)
-        print(f"USER: {msg}")
-        print(f"INTENT: {result['intent']}")
-        print(f"RISK (cumulative): {result['risk_score']}")
-        print(f"ANSWER: {result['answer'][:200]}")
+    # Sustained moderate distress: each message is rated 2 but classified SUPPORT,
+    # so only the decayed risk score can escalate (expected on the 3rd message).
+    escalation_config = {"configurable": {"thread_id": "conversation-2"}}
+    escalation_tests = [
+        "I feel really down and nothing seems to help",
+        "everything feels too much and I keep crying",
+        "I am overwhelmed and I cannot cope with work and family",
+    ]
+    print("\n\n### ESCALATION TEST (new thread) ###")
+    run_conversation(escalation_config, escalation_tests)
 
     print("\n" + "=" * 60)
     print("FULL CONVERSATION HISTORY:")

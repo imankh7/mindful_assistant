@@ -117,15 +117,15 @@ After the model migration, adversarial testing (`test_safety.py`) caught a new f
 
 ## 9. Cross-turn risk tracking
 
-**Decision:** Score each message's emotional risk (0-3) and accumulate it in agent state; if the cumulative total reaches a threshold (currently 4), override normal routing and escalate to the crisis path.
+**Decision:** Score each message's emotional risk (0-3) and accumulate it in agent state, with older scores decaying (decision 13); if the cumulative score reaches a threshold (currently 4), override normal routing and escalate to the crisis path.
 
 **Alternatives considered:** Per-message classification only; sentiment analysis; no cross-turn tracking.
 
 **Reasoning:** Risk often builds gradually: no single message trips a crisis classifier, but the trajectory is concerning. Conversation memory makes accumulation possible. The two mechanisms are complementary: the classifier catches crisis signals immediately, and the risk score is a backstop for gradual decline. In testing the classifier usually escalates first, which is the safe outcome; the risk tracker covers cases that stay individually below the classifier's bar.
 
-**Known issues after the model migration:** The same four-message test conversation now totals 3, below the threshold of 4, because the new model rates distress more conservatively than the one the threshold was tuned on. The score also never decays: once a thread crosses the threshold, every later message in it routes to crisis.
+**Known issues after the model migration:** The same four-message test conversation now totals 3, below the threshold of 4, because the new model rates distress more conservatively than the one the threshold was tuned on. The score also never decayed: once a thread crossed the threshold, every later message in it routed to crisis. Decision 13 fixes this with a decay.
 
-**Reconsider:** Re-calibrate the threshold against a labelled set of risk messages, and decide between a sliding window (count only the last N turns) and a decay. Threshold and scoring are deliberately conservative (a false escalation is far less harmful than a missed one) but are not clinically validated; real deployment would require clinical review and testing on real conversation data.
+**Reconsider:** Re-calibrate the threshold against a labelled set of risk messages. Threshold and scoring are deliberately conservative (a false escalation is far less harmful than a missed one) but are not clinically validated; real deployment would require clinical review and testing on real conversation data.
 
 ---
 
@@ -164,4 +164,22 @@ A bug was fixed at the same time: the prompt asked for labels spelled differentl
 **Reasoning:** A full retrieval comparison makes roughly 276 judge calls, and the free tier's limit of 8,000 tokens per minute crashed the run partway through. Exponential backoff (1s, 2s, 4s... up to 30s, six attempts) absorbs short bursts without slowing every call. Caching cuts repeated calls, since retrievers often return the same chunks, and it also makes the comparison fairer: a chunk receives the same verdict whichever retriever found it.
 
 **Reconsider:** Apply the same retry policy to the other judges and to the agent's API calls, and persist the cache to disk so repeated evaluation runs are cheaper.
+
+---
+
+## 13. Risk score decay: exponential, factor 0.7
+
+**Decision:** Each turn, the cumulative risk score becomes `old × RISK_DECAY + new`, with `RISK_DECAY = 0.7`. The decay factor and the threshold (4) are defined together in `config.py`.
+
+**Alternatives considered:** No decay (the original behaviour); a sliding window that sums only the last N turns; a decay factor of 0.5.
+
+**Reasoning:** Without decay, a thread that crossed the threshold stayed in crisis routing for good, and a long conversation of mild messages would eventually trigger it. A decay keeps recent messages weighted most while still remembering earlier ones, and needs only one number of state, where a sliding window has to store the last N scores.
+
+The factor was chosen with arithmetic, not by feel. If a user keeps sending messages rated `s`, the score levels off at `s / (1 − d)`. For sustained moderate distress (2s) to trigger, that ceiling must exceed 4, so `d > 0.5`. For sustained mild distress (1s) not to trigger, it must stay below 4, so `d < 0.75`. The first idea, 0.5, sits exactly on the lower edge: repeated 2s approach 4 but never reach it, so the score could never escalate gradual decline, which is the job it exists for. At 0.7, repeated 2s trigger on the third message (2, 3.4, 4.38), repeated 1s level off near 3.33, and two 3s trigger on the second. A single message (maximum 3) still cannot trigger by itself; the classifier's CRISIS intent covers that case.
+
+**Implementation note:** The decay is applied by the LangGraph reducer on `risk_score`, which runs each time a node writes the field. Only `risk_node` may return `risk_score`; a second writer would decay the score twice per turn.
+
+**Results:** The original four-message test conversation was rated 0, 1, 1, 1 and scored 0.00, 1.00, 1.70, 2.19, staying on normal routing (SUPPORT), as it should for mild venting. A second test conversation (`agent.py`, thread `conversation-2`) sends three messages that are each rated 2 but classified SUPPORT, so only the risk score can escalate. It scored 2.00, 3.40, 4.38 and routed to crisis on the third message while the classifier still said SUPPORT, which confirms the decay catches gradual decline on its own. An earlier version of that test used "I feel hopeless and can't cope", but the classifier routed it to CRISIS on the first message, which hid the risk score's effect. The test messages now have to be rated 2 by the risk model while the classifier still says SUPPORT.
+
+**Reconsider:** The 0.5-0.75 range assumes the current threshold of 4 and the current model's ratings. Re-derive it if either changes. As with decision 9, these values are not clinically validated.
 
