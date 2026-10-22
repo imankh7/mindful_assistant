@@ -94,12 +94,6 @@ gold_set = [
         "category": "gad",
     },
     {
-        "question": "can you have anxiety and depression at the same time?",
-        "expected_phrase": "other mental and physical health disorders",
-        "expected_source": [GAD],
-        "category": "gad",
-    },
-    {
         "question": "what lifestyle changes help with anxiety?",
         "expected_phrase": "reducing caffeine intake and getting enough sleep",
         "expected_source": [GAD],
@@ -263,6 +257,12 @@ gold_set = [
         "category": "depression",
     },
     # --- Cross-topic (answerable from both pages) ---
+    {
+        "question": "can you have anxiety and depression at the same time?",
+        "expected_phrase": "other mental and physical health disorders",
+        "expected_source": [GAD, DEPRESSION],
+        "category": "cross_topic",
+    },
     {
         "question": "Can the same medication treat both anxiety and depression?",
         "expected_phrase": "commonly used to treat depression, but they also can help treat the symptoms of GAD",

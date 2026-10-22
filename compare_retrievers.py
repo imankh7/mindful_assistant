@@ -10,10 +10,10 @@ from langchain_classic.retrievers.contextual_compression import (
 from chunk import load_corpus
 from gold_set import gold_set
 from judge import judge_relevance, cache_stats
-from metrics import in_scope, source_hit, summarize, print_summary
+from metrics import in_scope, source_hit, source_coverage, summarize, print_summary
 
 K = 3
-METRICS = [f"precision@{K}", f"source_hit@{K}"]
+METRICS = [f"precision@{K}", f"source_hit@{K}", f"coverage@{K}"]
 
 
 def evaluate_retriever(retriever, label):
@@ -35,6 +35,7 @@ def evaluate_retriever(retriever, label):
                 "category": item["category"],
                 METRICS[0]: relevant_count / len(results) if results else 0,
                 METRICS[1]: 1 if source_hit(results, item) else 0,
+                METRICS[2]: 1 if source_coverage(results, item) else 0,
             }
         )
 

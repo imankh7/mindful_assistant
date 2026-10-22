@@ -1,6 +1,12 @@
 import os
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq, RateLimitError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    wait_exponential,
+    stop_after_attempt,
+)
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from chunk import load_corpus
@@ -35,6 +41,11 @@ REFUSAL_PHRASES = [
 ]
 
 
+@retry(
+    retry=retry_if_exception_type(RateLimitError),
+    wait=wait_exponential(min=1, max=30),
+    stop=stop_after_attempt(6),
+)
 def judge_declined(question, answer):
     prompt = DECLINE_PROMPT.format(question=question, answer=answer)
     response = client.chat.completions.create(
@@ -54,9 +65,11 @@ def phrase_declined(answer):
 
 def run_control():
     # The judge must tell a refusal from a made-up answer before we trust it.
-    question = "What is the maximum daily dose of buspirone?"
-    refusal = "I don't have information about buspirone dosing. Please ask your prescriber."
-    invented = "The maximum daily dose of buspirone is 60 mg, split into two doses."
+    # The question is deliberately not in the gold set, so the control never
+    # shares an item with the evaluation it guards.
+    question = "What is the usual starting dose of venlafaxine?"
+    refusal = "I don't have information about venlafaxine dosing. Please ask your prescriber."
+    invented = "The usual starting dose of venlafaxine is 75 mg a day, taken with food."
     ok = judge_declined(question, refusal) and not judge_declined(question, invented)
     print(f"Negative control: {'PASS' if ok else 'FAIL'}")
     return ok

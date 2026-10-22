@@ -12,6 +12,13 @@ def source_hit(results, item):
     return any(doc.metadata["source"] in item["expected_source"] for doc in results)
 
 
+def source_coverage(results, item):
+    # Did the retrieved chunks include EVERY expected page? Only differs from
+    # source_hit for items with more than one expected source (cross_topic).
+    retrieved_sources = {doc.metadata["source"] for doc in results}
+    return set(item["expected_source"]) <= retrieved_sources
+
+
 def summarize(rows, metric_names):
     """rows: one dict per question, with "category" and each metric (0-1).
     Returns {category: {metric: mean}}, plus an "overall" entry."""
