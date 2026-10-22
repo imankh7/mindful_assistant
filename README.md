@@ -43,14 +43,14 @@ Model names live in one place (`config.py`), so switching models is a one-line c
 ## Key Features
 
 - **Measured retrieval**: dense, sparse (BM25), hybrid (RRF fusion), and cross-encoder reranking compared on a labeled gold set; the simplest option within noise of the best was chosen.
-- **LLM-as-judge evaluation**: automated Precision@k with an LLM labelling relevance, plus a separate faithfulness judge for hallucination detection.
+- **LLM-as-judge evaluation**: automated Precision@k with an LLM labelling relevance, Source Hit@k to check that retrieval finds the right page, a separate faithfulness judge for hallucination detection, and a check that out-of-scope questions are declined.
 - **Validated evaluators**: the faithfulness judge is checked with a negative-control set (known-good and known-bad answers) to confirm it actually discriminates.
 - **Grounded, cited generation**: answers use only retrieved context and attribute their source.
 - **Layered crisis safety**: an intent classifier for crisis signals, plus a cumulative risk score that escalates gradual decline across turns.
 - **Fail-safe defaults**: when unsure between SUPPORT and CRISIS the classifier chooses CRISIS, and unparseable classifier output falls back to the fixed clinical reply, never to generation.
 - **Structural guardrails**: crisis and clinical responses are fixed text, not model-generated, so they cannot hallucinate or drift.
 - **Conversation memory**: multi-turn state via a LangGraph checkpointer, keyed by thread ID.
-- **Resilient evaluation**: the relevance judge retries with exponential backoff on rate limits and caches verdicts per (question, chunk).
+- **Resilient evaluation**: the relevance judge retries with exponential backoff on rate limits and caches verdicts on disk, keyed by judge model, prompt, question, and chunk, so repeat runs make no API calls.
 - **Deployable**: served over HTTP with FastAPI and packaged as a Docker container, with secrets injected at runtime.
 
 ---
@@ -73,24 +73,28 @@ Models are right-sized to the task: the larger model for answer generation, the 
 
 ## Evaluation & Results
 
-Evaluation uses a hand-built **gold set** of 23 questions (`gold_set.py`), deliberately including paraphrased, casual, and specific-detail phrasings, so it stresses retrieval rather than flattering it.
+Evaluation uses a hand-built **gold set** of 55 questions (`gold_set.py`): 23 about GAD, 20 about depression, 6 cross-topic questions answerable from both pages, and 6 out-of-scope questions the corpus cannot answer. It deliberately includes paraphrased, casual, and specific-detail phrasings, so it stresses retrieval rather than flattering it. Each item records its category and the page(s) that should answer it, and `validate_gold_set.py` checks that every expected phrase really appears in its source page and fits inside one chunk.
 
-**Retrieval comparison** (Precision@3 on the 23-question gold set over the 37-chunk GAD + depression corpus, judged by `gpt-oss-20b`):
+**Retrieval comparison** (49 in-scope questions over the 37-chunk GAD + depression corpus, judged by `gpt-oss-20b`):
 
-| Retriever | Precision@3 |
-|---|---|
-| Dense (semantic) | 58.0% |
-| Sparse (BM25) | 39.1% |
-| Hybrid (dense + sparse, RRF) | 53.6% |
-| Hybrid + cross-encoder rerank | 59.4% |
+| Retriever | Precision@3 | Source Hit@3 |
+|---|---|---|
+| Dense (semantic) | 59.2% | 100% |
+| Sparse (BM25) | 38.8% | 98.0% |
+| Hybrid (dense + sparse, RRF) | 53.7% | 100% |
+| Hybrid + cross-encoder rerank | 58.5% | 98.0% |
 
-**Chosen: dense retrieval.** Hybrid + rerank scored marginally higher, but the gap is one chunk judgement out of 69, which is within noise for a gold set this size. Dense is simpler and faster, so it is the better trade-off here. BM25 trails by about 19 points. It dropped the most when the depression page joined the corpus, because the two NIMH pages share generic wording ("treatment", "medication", "help") and keyword matching pulls in chunks from the wrong page. Dense, hybrid, and rerank held steady: the depression chunks they retrieved often overlap in content with the GAD page (medication, therapy, finding help) and were judged relevant. Hybrid search and reranking are expected to pay off on a larger, noisier corpus, so the decision is documented to be revisited as the corpus grows.
+Precision@3 is the share of the top 3 chunks the judge rates relevant. Source Hit@3 is the share of questions where at least one of the top 3 chunks comes from the page that should answer it; it shows whether retrieval finds the right page, which Precision@3 cannot see. Results per category (GAD, depression, cross-topic) are in [`DECISIONS.md`](./DECISIONS.md) (decision 15).
 
-Absolute numbers depend on the judge model. When the project migrated from Llama 3.1 8B to `gpt-oss-20b` as the judge, all scores dropped because the new judge is stricter. The gold set covers GAD only, so most questions can be answered by just a few of the 37 chunks, and many have a single relevant chunk, which caps Precision@3 at 33% for those questions. The comparison *between* retrievers under the same judge is what the decision rests on.
+**Chosen: dense retrieval.** Neither hybrid nor rerank beats it. Dense and rerank differ by one chunk judgement out of 147, which is within noise, and dense is simpler and faster. Hybrid trails dense in every category. BM25 trails by about 20 points, because the two NIMH pages share generic wording ("treatment", "medication", "help") and keyword matching pulls in chunks from the wrong page. Dense is the only retriever that is both top on precision and finds the right page for every question. Hybrid search and reranking are expected to pay off on a larger, noisier corpus, so the decision is documented to be revisited as the corpus grows.
+
+Absolute numbers depend on the judge model. When the project migrated from Llama 3.1 8B to `gpt-oss-20b` as the judge, all scores dropped because the new judge is stricter. Many questions have a single relevant chunk, which caps Precision@3 at 33% for those questions. The comparison *between* retrievers under the same judge is what the decision rests on.
 
 **Catching a measurement bug.** An early comparison was distorted because the ensemble (hybrid) retriever returns a variable number of chunks, so precision computed against a fixed *k* was wrong. Inspecting the actual retrieved chunks, not just the metric, revealed it. The fix: every retriever's results are truncated to the top *k* before judging, so all retrievers are scored on exactly *k* chunks.
 
 **Faithfulness.** Generated answers are judged for groundedness against their source context. The judge is validated with a negative-control test (`test_faithfulness_control.py`) covering invented statistics, overstated claims, invented treatment advice, and subtle factual contradictions. It classifies all 5 correctly.
+
+**Out-of-scope questions.** For the 6 questions the corpus cannot answer (dosages, other conditions, unrelated topics), `evaluate_out_of_scope.py` checks that the generated answer declines instead of inventing facts. An LLM judge decides, after passing a negative control (one refusal, one invented dose). All 6 were declined. A simpler refusal-phrase check agreed on all 6, but only after normalising curly apostrophes ("don’t"), which shows how brittle phrase matching is.
 
 **Intent classification.** The classifier is checked against 11 labelled messages (`python classify.py`), including boundary cases such as passive crisis statements and "I'm stressed, is that a disorder?". It passes 11/11.
 
@@ -151,7 +155,9 @@ POST /chat
 ```bash
 python classify.py                  # intent classifier test cases
 python test_faithfulness_control.py # faithfulness judge negative control
-python compare_retrievers.py        # retrieval comparison (Precision@3)
+python validate_gold_set.py         # checks every gold set item against the source pages
+python compare_retrievers.py        # retrieval comparison (Precision@3, Source Hit@3)
+python evaluate_out_of_scope.py     # out-of-scope questions are declined
 python test_safety.py               # adversarial safety cases for generation
 ```
 
@@ -161,7 +167,7 @@ python test_safety.py               # adversarial safety cases for generation
 
 ## Design Decisions
 
-Major architectural decisions and their reasoning are recorded in [`DECISIONS.md`](./DECISIONS.md): the chunking strategy, local embeddings for privacy, the all-LangChain framework, the measured retrieval decision, the LLM provider and the model migration, the safety architecture, the SUPPORT intent, rate-limit handling, risk-score decay, and loading the whole corpus. Each entry notes the alternatives considered and what would be reconsidered at scale.
+Major architectural decisions and their reasoning are recorded in [`DECISIONS.md`](./DECISIONS.md): the chunking strategy, local embeddings for privacy, the all-LangChain framework, the measured retrieval decision, the LLM provider and the model migration, the safety architecture, the SUPPORT intent, rate-limit handling, risk-score decay, loading the whole corpus, and the gold set expansion. Each entry notes the alternatives considered and what would be reconsidered at scale.
 
 ---
 
@@ -169,15 +175,15 @@ Major architectural decisions and their reasoning are recorded in [`DECISIONS.md
 
 This is a portfolio project built to demonstrate engineering rigor, and it is honest about its scope:
 
-- **Small corpus, GAD-only gold set.** The knowledge base covers two NIMH pages (generalized anxiety disorder and depression). The gold set has GAD questions only, so depression retrieval is not measured yet. Precision@3 also cannot catch a depression chunk being used to answer an anxiety question, which could present depression guidance as anxiety guidance.
-- **Small evaluation set.** 23 questions mean small metric differences are noisy; results are read as directional, not exact.
+- **Small corpus.** The knowledge base covers two NIMH pages (generalized anxiety disorder and depression). The metrics also cannot catch a depression chunk being used to answer an anxiety question, which could present depression guidance as anxiety guidance.
+- **Small evaluation set.** 49 in-scope questions mean small metric differences are noisy, and with only 6 cross-topic and 6 out-of-scope questions, per-category results for those are anecdotal; results are read as directional, not exact. The depression questions were written while reading the page, so they may match its wording more closely than the GAD questions do.
 - **Risk scoring is not validated.** The decay factor was chosen with arithmetic and tested on two conversations, and the threshold was tuned on a previous model. Neither has been validated against a labelled set of risk messages. Also, one calm message can drop the score back below the threshold, so a thread can leave crisis routing after a single reassuring reply.
 - **Crisis resources over-appear.** The generation model sometimes adds crisis resources to non-crisis answers; the prompt's safety override needs tuning for the new model.
 - **Crisis handling is a conservative baseline, not clinically validated.** It errs toward caution, but real deployment would require clinical review and far more robust, tested detection.
 - **In-memory conversation state.** The checkpointer keeps history in RAM; production would use a persistent, database-backed store.
 - **Retrieval does not yet use conversation history.** Memory is used for risk tracking, but follow-up questions are retrieved on the latest message only.
 
-**Planned next steps:** add more NIMH topics, grow the gold set to ~80-100 questions with depression and cross-topic questions, an `expected_source` field, and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
+**Planned next steps:** add more NIMH topics, grow the gold set to ~80-100 questions with more cross-topic and out-of-scope questions, add Recall and a framework-based evaluation (e.g. RAGAS), re-calibrate the risk threshold, feed conversation history into retrieval, add a persistent checkpointer, and migrate the FAISS import from `langchain-community` to the standalone `langchain-faiss` package.
 
 ---
 

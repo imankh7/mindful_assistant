@@ -165,7 +165,9 @@ A bug was fixed at the same time: the prompt asked for labels spelled differentl
 
 **Reasoning:** A full retrieval comparison makes roughly 276 judge calls, and the free tier's limit of 8,000 tokens per minute crashed the run partway through. Exponential backoff (1s, 2s, 4s... up to 30s, six attempts) absorbs short bursts without slowing every call. Caching cuts repeated calls, since retrievers often return the same chunks, and it also makes the comparison fairer: a chunk receives the same verdict whichever retriever found it.
 
-**Reconsider:** Apply the same retry policy to the other judges and to the agent's API calls, and persist the cache to disk so repeated evaluation runs are cheaper.
+**Update:** The in-memory `lru_cache` was later replaced by a cache on disk (decision 15), so repeated runs reuse verdicts.
+
+**Reconsider:** Apply the same retry policy to the other judges and to the agent's API calls.
 
 ---
 
@@ -207,3 +209,32 @@ Counting retrieved chunks by source explains the pattern. Of the 69 chunks each 
 **Conclusion:** Decision 4 stands. Dense remains the simple choice, and its gap to hybrid + rerank shrank from two judgements to one. The expectation that hybrid gains on a larger corpus did not hold here, but the corpus grew with a closely related page rather than a noisier or more jargon-heavy one.
 
 **Reconsider:** Precision@3 cannot see one risk: a depression chunk judged relevant to an anxiety question (for example on medication) could lead the generator to present depression guidance as anxiety guidance. Measure faithfulness on mixed-source answers, and consider filtering or boosting by `source` when the question names a condition. The gold set is GAD-only, so depression retrieval is not measured at all; add depression questions, and some that span both pages, before adding more documents.
+
+---
+
+## 15. Gold set expansion: 55 questions, per-category results, and Source Hit@3
+
+**Decision:** Grow the gold set from 23 GAD questions to 55: 23 GAD, 20 depression, 6 cross-topic (answerable from both pages) and 6 out-of-scope (the corpus cannot answer them). Every item now has `expected_source` (a list of source names, empty for out-of-scope) and `category`. Retrieval metrics use only the 49 in-scope items and are reported per category. A new metric, Source Hit@3, records whether at least one of the top 3 chunks came from an expected page.
+
+**Alternatives considered:** Keeping a GAD-only gold set; separate gold set files per topic; measuring out-of-scope questions with retrieval metrics.
+
+**Reasoning:** After decision 14, depression retrieval was not measured at all, and Precision@3 could not tell whether a relevant-looking chunk came from the right page. Source Hit@3 answers that directly and needs no judge calls. Out-of-scope questions have no right chunk, so they are excluded from retrieval metrics and checked on generation instead. One list with a `category` field keeps every evaluation script working with a one-line filter.
+
+**Quality checks on the gold set itself:** `validate_gold_set.py` checks every item: a known category, `expected_source` as a list naming a real document, the phrase present in an expected source, and the phrase inside a single chunk (the hit-rate check searches chunk text, so a phrase split across a chunk boundary could never count as a hit). A negative control with one broken item per check confirmed each one fires.
+
+**Retrieval results (49 in-scope questions, Precision@3 / Source Hit@3):**
+
+| Retriever | GAD (23) | Depression (20) | Cross-topic (6) | Overall (49) |
+|---|---|---|---|---|
+| Dense | 58.0% / 100% | 61.7% / 100% | 55.6% / 100% | 59.2% / 100% |
+| Sparse (BM25) | 39.1% / 95.7% | 36.7% / 100% | 44.4% / 100% | 38.8% / 98.0% |
+| Hybrid | 53.6% / 100% | 55.0% / 100% | 50.0% / 100% | 53.7% / 100% |
+| Hybrid + rerank | 59.4% / 95.7% | 63.3% / 100% | 38.9% / 100% | 58.5% / 98.0% |
+
+**Interpretation:** Neither hybrid nor rerank beats dense. Overall, dense and rerank differ by one judgement out of 147 (87 vs. 86), which is noise; rerank is one judgement ahead on depression and three behind on cross-topic, where there are only 18 judgements. Hybrid trails dense in every category, and BM25 trails by about 20 points. Decision 4 stands. The GAD numbers match decision 14 exactly, which shows the judge is stable at temperature 0. Both Source Hit misses are single questions: BM25 answered "how many symptoms do you need to be diagnosed with GAD?" with three depression chunks (a real miss, from shared words like "symptoms" and "diagnosed"), and rerank did the same for "can you have anxiety and depression at the same time?", which is really a cross-topic question labelled GAD-only.
+
+**Out-of-scope check (`evaluate_out_of_scope.py`):** Generation declined all 6 out-of-scope questions (two dosage questions, OCD, schizophrenia, therapy cost, a sprained ankle). Two methods were compared. An LLM judge (DECLINED or ANSWERED) handles varied wording but costs a call per answer, so it is run only after passing a negative control (one refusal, one invented dose). A refusal-phrase check is free but brittle: it first missed 5 of 6 refusals because the model writes curly apostrophes ("don’t"); after normalising apostrophes it agreed with the judge on all 6.
+
+**Judge cost:** Relevance verdicts are now cached on disk (`.cache/judge_relevance.json`, not committed), keyed by a hash of the judge model, the judge prompt, the question and the chunk, so changing the judge or its prompt never reuses old verdicts. The first full comparison needed 296 API calls for 588 judgements (the four retrievers often return the same chunks); a repeat run needs none.
+
+**Reconsider:** The depression questions were written while reading the page, so they may echo its wording more closely than the older GAD questions; phrase hit-rate is 90% for depression against 61% for GAD, and part of that gap may be the questions, not retrieval. Relabel "can you have anxiety and depression at the same time?" as cross-topic. Six cross-topic and six out-of-scope questions are too few to draw conclusions per category; grow both, and add out-of-scope questions that are close to the corpus (for example a GAD medication the page does not name).
